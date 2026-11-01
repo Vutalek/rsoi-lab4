@@ -85,14 +85,62 @@ jobs:
           cache-from: type=gha,scope=${{ matrix.service }}
           cache-to: type=gha,mode=max,scope=${{ matrix.service }}
 
-  postman:
-    name: Postman tests on VM
+  deploy:
+    name: Deploy to Kubernetes
     needs: build
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install kubectl
+        uses: azure/setup-kubectl@v4
+        with:
+          version: v1.36.6
+
+      - name: Install Helm
+        uses: azure/setup-helm@v5
+        with:
+          version: v4.3.1
+
+      - name: Configure Cloud.ru access
+        env:
+          KUBE_CONFIG: ${{ secrets.KUBE_CONFIG }}
+        run: |
+          test -n "$KUBE_CONFIG"
+          curl -fsSL https://github.com/cloud-ru-tech/cloudlogin/releases/download/v1.0.2/cloudlogin_Linux_amd64.tar.gz \
+            -o "$RUNNER_TEMP/cloudlogin.tar.gz"
+          tar -xzf "$RUNNER_TEMP/cloudlogin.tar.gz" -C "$RUNNER_TEMP"
+          sudo install -m 755 "$RUNNER_TEMP/cloudlogin" /usr/local/bin/cloudlogin
+          mkdir -p "$HOME/.kube"
+          umask 077
+          printf '%s\n' "$KUBE_CONFIG" > "$HOME/.kube/config"
+
+      - name: Deploy Helm releases
+        run: |
+          helm upgrade --install rabbitmq helm/application -n rsoi \
+            -f helm/values/rabbitmq.yaml --wait --timeout 5m
+
+          for service in flight ticket bonus purchase-worker gateway; do
+            helm upgrade --install "$service" helm/application -n rsoi \
+              -f "helm/values/$service.yaml" \
+              --set-string image.tag="$GITHUB_SHA" \
+              --set-string ingress.className=traefik \
+              --wait --timeout 5m
+          done
+
+  postman:
+    name: Postman tests on Kubernetes
+    needs: deploy
     runs-on: ubuntu-latest
     env:
       HAS_GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY != '' }}
     steps:
       - uses: actions/checkout@v3
+
+      - name: Set Gateway address
+        run: sed -i 's|http://localhost:8080|http://37.44.196.161|g' postman/environment.json
 
       - name: Run API Tests
         uses: matt-ball/newman-action@master
