@@ -1,0 +1,48 @@
+fullnameOverride: rabbitmq
+image:
+  repository: rabbitmq
+  tag: 4.4.0-management
+service:
+  port: 5672
+  targetPort: 5672
+  portName: amqp
+hostname: rabbitmq
+env:
+  RABBITMQ_NODENAME: rabbit@rabbitmq
+secretEnv:
+  RABBITMQ_DEFAULT_USER:
+    name: rabbitmq-auth
+    key: username
+  RABBITMQ_DEFAULT_PASS:
+    name: rabbitmq-auth
+    key: password
+startupProbe:
+  exec:
+    command: [rabbitmq-diagnostics, -q, ping]
+  periodSeconds: 10
+  timeoutSeconds: 5
+  failureThreshold: 30
+readinessProbe:
+  exec:
+    command: [rabbitmq-diagnostics, -q, check_port_connectivity]
+  periodSeconds: 10
+  timeoutSeconds: 5
+livenessProbe:
+  exec:
+    command: [rabbitmq-diagnostics, -q, ping]
+  periodSeconds: 30
+  timeoutSeconds: 5
+resources:
+  requests:
+    cpu: 100m
+    memory: 256Mi
+  limits:
+    cpu: "1"
+    memory: 1Gi
+persistence:
+  enabled: true
+  storageClassName: cloudru-ssd
+  size: 5Gi
+  mountPath: /var/lib/rabbitmq
+strategy:
+  type: Recreate

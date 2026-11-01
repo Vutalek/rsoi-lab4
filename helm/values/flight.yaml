@@ -1,0 +1,16 @@
+fullnameOverride: flight
+image:
+  repository: vutalek/rsoi-flight_service
+service:
+  port: 8060
+  targetPort: 8060
+env:
+  FLIGHT_SERVICE_DB_PROTOCOL: postgresql+psycopg2
+  FLIGHT_SERVICE_DB_HOST: postgres
+  FLIGHT_SERVICE_DB_PORT: "5432"
+  FLIGHT_SERVICE_DB_NAME: flights
+  FLIGHT_SERVICE_DB_USER: program
+secretEnv:
+  FLIGHT_SERVICE_DB_PASSWORD:
+    name: flight-db
+    key: password

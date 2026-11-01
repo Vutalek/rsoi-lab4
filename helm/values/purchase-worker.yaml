@@ -1,0 +1,15 @@
+fullnameOverride: purchase-worker
+image:
+  repository: vutalek/rsoi-gateway_service
+command:
+  - python
+  - rabbit.py
+service:
+  enabled: false
+startupProbe: null
+readinessProbe: null
+livenessProbe: null
+secretEnv:
+  RABBITMQ_URL:
+    name: rabbitmq-auth
+    key: url

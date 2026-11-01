@@ -1,0 +1,16 @@
+fullnameOverride: ticket
+image:
+  repository: vutalek/rsoi-ticket_service
+service:
+  port: 8070
+  targetPort: 8070
+env:
+  TICKET_SERVICE_DB_PROTOCOL: postgresql+psycopg2
+  TICKET_SERVICE_DB_HOST: postgres
+  TICKET_SERVICE_DB_PORT: "5432"
+  TICKET_SERVICE_DB_NAME: tickets
+  TICKET_SERVICE_DB_USER: program
+secretEnv:
+  TICKET_SERVICE_DB_PASSWORD:
+    name: ticket-db
+    key: password

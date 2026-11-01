@@ -1,0 +1,79 @@
+# Имя Deployment и Service по умолчанию совпадает с именем Helm-релиза.
+fullnameOverride: ""
+replicaCount: 1
+
+image:
+  # Укажите образ через helm/values/<component>.yaml или --set image.repository=...
+  repository: ""
+  tag: latest
+  pullPolicy: IfNotPresent
+imagePullSecrets: []
+
+command: []
+args: []
+
+# Обычные переменные окружения. Значения преобразуются в строки.
+env: {}
+# Переменные из уже созданных Kubernetes Secret:
+# secretEnv:
+#   DB_PASSWORD:
+#     name: database-credentials
+#     key: password
+secretEnv: {}
+# Стандартные envFrom: secretRef и configMapRef.
+envFrom: []
+
+service:
+  enabled: true
+  port: 8080
+  targetPort: 8080
+  portName: http
+
+# Сервисы всегда ClusterIP. Внешний HTTP-доступ — только через Ingress.
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  # Пустой host позволяет обращаться по IP контроллера, если он это поддерживает.
+  host: ""
+  path: /
+  pathType: Prefix
+  tls: []
+
+# Если handler не указан, chart добавляет httpGet на этот путь и именованный порт Service.
+# Можно передать exec/tcpSocket/grpc; null полностью отключает соответствующую проверку.
+healthCheckPath: /manage/health
+startupProbe:
+  periodSeconds: 5
+  failureThreshold: 30
+readinessProbe:
+  periodSeconds: 5
+livenessProbe:
+  periodSeconds: 10
+  failureThreshold: 3
+
+resources:
+  requests:
+    cpu: 50m
+    memory: 128Mi
+  limits:
+    cpu: 500m
+    memory: 256Mi
+
+# Для одного экземпляра приложения с постоянным диском, например RabbitMQ.
+persistence:
+  enabled: false
+  existingClaim: ""
+  storageClassName: ""
+  accessModes:
+    - ReadWriteOnce
+  size: 5Gi
+  mountPath: /data
+
+strategy:
+  type: RollingUpdate
+hostname: ""
+podAnnotations: {}
+nodeSelector: {}
+tolerations: []
+affinity: {}

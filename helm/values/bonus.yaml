@@ -1,0 +1,16 @@
+fullnameOverride: bonus
+image:
+  repository: vutalek/rsoi-bonus_service
+service:
+  port: 8050
+  targetPort: 8050
+env:
+  BONUS_SERVICE_DB_PROTOCOL: postgresql+psycopg2
+  BONUS_SERVICE_DB_HOST: postgres
+  BONUS_SERVICE_DB_PORT: "5432"
+  BONUS_SERVICE_DB_NAME: privileges
+  BONUS_SERVICE_DB_USER: program
+secretEnv:
+  BONUS_SERVICE_DB_PASSWORD:
+    name: bonus-db
+    key: password

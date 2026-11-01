@@ -1,0 +1,18 @@
+fullnameOverride: gateway
+image:
+  repository: vutalek/rsoi-gateway_service
+service:
+  port: 8080
+  targetPort: 8080
+env:
+  FLIGHT_SERVICE_HOST: http://flight:8060
+  TICKET_SERVICE_HOST: http://ticket:8070
+  BONUS_SERVICE_HOST: http://bonus:8050
+secretEnv:
+  RABBITMQ_URL:
+    name: rabbitmq-auth
+    key: url
+ingress:
+  enabled: true
+  # Укажите класс установленного Ingress Controller, если в кластере нет класса по умолчанию.
+  className: ""
