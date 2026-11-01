@@ -80,8 +80,8 @@ jobs:
           context: ./${{ matrix.service }}
           push: ${{ github.event_name != 'pull_request' }}
           tags: |
-            ${{ vars.DOCKERHUB_USERNAME }}/rsoi-${{ matrix.service }}:latest
-            ${{ vars.DOCKERHUB_USERNAME }}/rsoi-${{ matrix.service }}:${{ github.sha }}
+            ${{ secrets.DOCKERHUB_USERNAME }}/rsoi-${{ matrix.service }}:latest
+            ${{ secrets.DOCKERHUB_USERNAME }}/rsoi-${{ matrix.service }}:${{ github.sha }}
           cache-from: type=gha,scope=${{ matrix.service }}
           cache-to: type=gha,mode=max,scope=${{ matrix.service }}
 
