@@ -7,6 +7,9 @@ on:
     branches:
       - main
   workflow_dispatch:
+concurrency:
+  group: classroom-${{ github.ref }}
+  cancel-in-progress: false
 env:
   FLIGHT_SERVICE_HOST: http://flight_service:8060
   TICKET_SERVICE_HOST: http://ticket_service:8070
@@ -166,49 +169,63 @@ jobs:
           column_offset: 'F'
           mark: "'+"
 
-  # tolerance:
-  #   name: Fault tolerance tests on VM
-  #   needs: postman
-  #   runs-on: ubuntu-latest
-  #   timeout-minutes: 20
-  #   steps:
-  #     - name: Run fault tolerance tests on VM
-  #       timeout-minutes: 15
-  #       shell: bash
-  #       env:
-  #         VM_HOST: ${{ secrets.VM_HOST }}
-  #         VM_PORT: ${{ secrets.VM_PORT }}
-  #         VM_USER: ${{ secrets.VM_USER }}
-  #         VM_SSH_KEY: ${{ secrets.VM_SSH_KEY }}
-  #       run: |
-  #         umask 077
-  #         mkdir -p ~/.ssh
-  #         printf '%s\n' "$VM_SSH_KEY" > ~/.ssh/deploy_key
-  #         ssh -i "$HOME/.ssh/deploy_key" -p "$VM_PORT" \
-  #           -o BatchMode=yes -o IdentitiesOnly=yes \
-  #           -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
-  #           "$VM_USER@$VM_HOST" 'bash -s' <<'REMOTE'
-  #         set -e
-  #         cd "$HOME/rsoi-lab3"
-  #         docker pull postman/newman:alpine
+  tolerance:
+    name: Fault tolerance tests on Kubernetes
+    needs: postman
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
 
-  #         # Run Newman beside the services without installing Node.js on the VM.
-  #         newman() {
-  #           docker run --rm --network host \
-  #             --user "$(id -u):$(id -g)" \
-  #             -v "$PWD:$PWD" -w "$PWD" \
-  #             postman/newman:alpine "$@"
-  #         }
-  #         export -f newman
+      - name: Install kubectl
+        uses: azure/setup-kubectl@v4
+        with:
+          version: v1.36.6
 
-  #         # Restore the service even when a Postman assertion fails while it is stopped.
-  #         cleanup() {
-  #           status=$?
-  #           trap - EXIT
-  #           docker compose start bonus_service || status=1
-  #           WAIT_PORTS=8050 ./scripts/wait-script.sh || status=1
-  #           exit "$status"
-  #         }
-  #         trap cleanup EXIT
-  #         bash ./scripts/test-script.sh v1 bonus_service 8050
-  #         REMOTE
+      - name: Configure Cloud.ru access
+        env:
+          KUBE_CONFIG: ${{ secrets.KUBE_CONFIG }}
+        run: |
+          test -n "$KUBE_CONFIG"
+          curl -fsSL https://github.com/cloud-ru-tech/cloudlogin/releases/download/v1.0.2/cloudlogin_Linux_amd64.tar.gz \
+            -o "$RUNNER_TEMP/cloudlogin.tar.gz"
+          tar -xzf "$RUNNER_TEMP/cloudlogin.tar.gz" -C "$RUNNER_TEMP"
+          sudo install -m 755 "$RUNNER_TEMP/cloudlogin" /usr/local/bin/cloudlogin
+          mkdir -p "$HOME/.kube"
+          umask 077
+          printf '%s\n' "$KUBE_CONFIG" > "$HOME/.kube/config"
+
+      - name: Install Newman
+        run: npm install --global newman
+
+      - name: Run fault tolerance tests
+        shell: bash
+        run: |
+          sed -i 's|http://localhost:8080|http://37.44.196.161|g' v1/postman/environment.json
+          replicas=$(kubectl -n rsoi get deployment bonus -o jsonpath='{.spec.replicas}')
+          cleanup() {
+            status=$?
+            trap - EXIT
+            kubectl -n rsoi scale deployment bonus --replicas="$replicas" || status=1
+            kubectl -n rsoi rollout status deployment/bonus --timeout=3m || status=1
+            exit "$status"
+          }
+          trap cleanup EXIT
+
+          run_tests() {
+            newman run v1/postman/collection.json --folder "$1" \
+              --environment v1/postman/environment.json \
+              --export-environment v1/postman/environment.json --delay-request 100
+          }
+
+          run_tests success
+          for step in 1 2 3 4; do
+            if (( step % 2 == 1 )); then
+              kubectl -n rsoi scale deployment bonus --replicas=0
+              kubectl -n rsoi wait --for=delete pod -l app.kubernetes.io/name=bonus --timeout=2m
+            else
+              kubectl -n rsoi scale deployment bonus --replicas="$replicas"
+              kubectl -n rsoi rollout status deployment/bonus --timeout=3m
+            fi
+            run_tests "step$step"
+          done
