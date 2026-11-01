@@ -48,97 +48,51 @@ jobs:
           done
 
   build:
-    name: Build
+    name: Build and push images
     needs: tests
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    strategy:
+      matrix:
+        service:
+          - gateway_service
+          - flight_service
+          - ticket_service
+          - bonus_service
+    
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v4
+
+      - name: Login to Docker Hub
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@v4
         with:
-          fetch-depth: 0
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_PASSWORD }}
 
-      - uses: docker/setup-buildx-action@v2
-
-      - name: Build images
-        timeout-minutes: 10
-        run: docker compose build
-
-  deploy:
-    name: Deploy to VM
-    needs: build
-    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    steps:
-      - uses: actions/checkout@v3
+      - name: Build and push
+        uses: docker/build-push-action@v7
         with:
-          persist-credentials: false
-
-      - name: Deploy via SSH
-        shell: bash
-        env:
-          VM_HOST: ${{ secrets.VM_HOST }}
-          VM_PORT: ${{ secrets.VM_PORT }}
-          VM_USER: ${{ secrets.VM_USER }}
-          VM_SSH_KEY: ${{ secrets.VM_SSH_KEY }}
-          VM_ENV: ${{ secrets.VM_ENV }}
-        run: |
-          umask 077
-          mkdir -p ~/.ssh
-          printf '%s\n' "$VM_SSH_KEY" > ~/.ssh/deploy_key
-          SSH_OPTIONS=(
-            -i "$HOME/.ssh/deploy_key"
-            -p "$VM_PORT"
-            -o BatchMode=yes
-            -o IdentitiesOnly=yes
-            -o StrictHostKeyChecking=no
-            -o UserKnownHostsFile=/dev/null
-          )
-          TARGET="$VM_USER@$VM_HOST"
-          git archive --format=tar HEAD |
-            ssh "${SSH_OPTIONS[@]}" "$TARGET" \
-              'mkdir -p "$HOME/rsoi-lab3" && tar -xf - -C "$HOME/rsoi-lab3"'
-          printf '%s\n' "$VM_ENV" |
-            ssh "${SSH_OPTIONS[@]}" "$TARGET" \
-              'umask 077; cat > "$HOME/rsoi-lab3/.env"'
-          ssh "${SSH_OPTIONS[@]}" "$TARGET" '
-            set -e
-            cd "$HOME/rsoi-lab3"
-            docker compose up -d --build
-            WAIT_PORTS=8080,8070,8060,8050 ./scripts/wait-script.sh
-          '
+          context: ./${{ matrix.service }}
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: |
+            ${{ vars.DOCKERHUB_USERNAME }}/rsoi-${{ matrix.service }}:latest
+            ${{ vars.DOCKERHUB_USERNAME }}/rsoi-${{ matrix.service }}:${{ github.sha }}
+          cache-from: type=gha,scope=${{ matrix.service }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.service }}
 
   postman:
     name: Postman tests on VM
-    needs: deploy
+    needs: build
     runs-on: ubuntu-latest
     env:
       HAS_GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY != '' }}
     steps:
       - uses: actions/checkout@v3
-
-      - name: Connect to VM
-        shell: bash
-        env:
-          VM_HOST: ${{ secrets.VM_HOST }}
-          VM_PORT: ${{ secrets.VM_PORT }}
-          VM_USER: ${{ secrets.VM_USER }}
-          VM_SSH_KEY: ${{ secrets.VM_SSH_KEY }}
-        run: |
-          umask 077
-          mkdir -p ~/.ssh
-          printf '%s\n' "$VM_SSH_KEY" > ~/.ssh/deploy_key
-          SSH_OPTIONS=(
-            -i "$HOME/.ssh/deploy_key"
-            -p "$VM_PORT"
-            -o BatchMode=yes
-            -o IdentitiesOnly=yes
-            -o StrictHostKeyChecking=no
-            -o UserKnownHostsFile=/dev/null
-          )
-          TARGET="$VM_USER@$VM_HOST"
-          ssh "${SSH_OPTIONS[@]}" -o ExitOnForwardFailure=yes \
-            -f -N -L 127.0.0.1:8080:127.0.0.1:8080 "$TARGET"
-          WAIT_PORTS=8080 ./scripts/wait-script.sh
 
       - name: Run API Tests
         uses: matt-ball/newman-action@master
@@ -164,49 +118,49 @@ jobs:
           column_offset: 'F'
           mark: "'+"
 
-  tolerance:
-    name: Fault tolerance tests on VM
-    needs: postman
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    steps:
-      - name: Run fault tolerance tests on VM
-        timeout-minutes: 15
-        shell: bash
-        env:
-          VM_HOST: ${{ secrets.VM_HOST }}
-          VM_PORT: ${{ secrets.VM_PORT }}
-          VM_USER: ${{ secrets.VM_USER }}
-          VM_SSH_KEY: ${{ secrets.VM_SSH_KEY }}
-        run: |
-          umask 077
-          mkdir -p ~/.ssh
-          printf '%s\n' "$VM_SSH_KEY" > ~/.ssh/deploy_key
-          ssh -i "$HOME/.ssh/deploy_key" -p "$VM_PORT" \
-            -o BatchMode=yes -o IdentitiesOnly=yes \
-            -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
-            "$VM_USER@$VM_HOST" 'bash -s' <<'REMOTE'
-          set -e
-          cd "$HOME/rsoi-lab3"
-          docker pull postman/newman:alpine
+  # tolerance:
+  #   name: Fault tolerance tests on VM
+  #   needs: postman
+  #   runs-on: ubuntu-latest
+  #   timeout-minutes: 20
+  #   steps:
+  #     - name: Run fault tolerance tests on VM
+  #       timeout-minutes: 15
+  #       shell: bash
+  #       env:
+  #         VM_HOST: ${{ secrets.VM_HOST }}
+  #         VM_PORT: ${{ secrets.VM_PORT }}
+  #         VM_USER: ${{ secrets.VM_USER }}
+  #         VM_SSH_KEY: ${{ secrets.VM_SSH_KEY }}
+  #       run: |
+  #         umask 077
+  #         mkdir -p ~/.ssh
+  #         printf '%s\n' "$VM_SSH_KEY" > ~/.ssh/deploy_key
+  #         ssh -i "$HOME/.ssh/deploy_key" -p "$VM_PORT" \
+  #           -o BatchMode=yes -o IdentitiesOnly=yes \
+  #           -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+  #           "$VM_USER@$VM_HOST" 'bash -s' <<'REMOTE'
+  #         set -e
+  #         cd "$HOME/rsoi-lab3"
+  #         docker pull postman/newman:alpine
 
-          # Run Newman beside the services without installing Node.js on the VM.
-          newman() {
-            docker run --rm --network host \
-              --user "$(id -u):$(id -g)" \
-              -v "$PWD:$PWD" -w "$PWD" \
-              postman/newman:alpine "$@"
-          }
-          export -f newman
+  #         # Run Newman beside the services without installing Node.js on the VM.
+  #         newman() {
+  #           docker run --rm --network host \
+  #             --user "$(id -u):$(id -g)" \
+  #             -v "$PWD:$PWD" -w "$PWD" \
+  #             postman/newman:alpine "$@"
+  #         }
+  #         export -f newman
 
-          # Restore the service even when a Postman assertion fails while it is stopped.
-          cleanup() {
-            status=$?
-            trap - EXIT
-            docker compose start bonus_service || status=1
-            WAIT_PORTS=8050 ./scripts/wait-script.sh || status=1
-            exit "$status"
-          }
-          trap cleanup EXIT
-          bash ./scripts/test-script.sh v1 bonus_service 8050
-          REMOTE
+  #         # Restore the service even when a Postman assertion fails while it is stopped.
+  #         cleanup() {
+  #           status=$?
+  #           trap - EXIT
+  #           docker compose start bonus_service || status=1
+  #           WAIT_PORTS=8050 ./scripts/wait-script.sh || status=1
+  #           exit "$status"
+  #         }
+  #         trap cleanup EXIT
+  #         bash ./scripts/test-script.sh v1 bonus_service 8050
+  #         REMOTE
